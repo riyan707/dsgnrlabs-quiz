@@ -15,7 +15,11 @@ export function ProgressHeader({ currentQuestionIndex, totalQuestions }: Progres
         <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Progress</p>
         <h2 className="text-lg font-semibold">{`Question ${displayNumber} of ${totalQuestions}`}</h2>
       </div>
-      <Progress value={percent} aria-label={`Progress: ${percent}%`} />
+      <Progress
+        value={percent}
+        aria-label={`Progress: ${percent}%`}
+        className="bg-[#4d96ff26] [&_[data-slot=progress-indicator]]:bg-[#4d96ff]"
+      />
     </div>
   );
 }
