@@ -118,7 +118,7 @@ export function ResultsView({ totalScore, maxScore, scorePercent, answers, onRes
   const revenue = estimateRevenueUpside(answers);
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5 sm:space-y-6">
       <div className="space-y-1">
         <p className="text-sm text-muted-foreground">Score</p>
         <p className="text-lg font-semibold">
@@ -131,45 +131,6 @@ export function ResultsView({ totalScore, maxScore, scorePercent, answers, onRes
           <p className="text-lg font-semibold">{scorePercent}%</p>
         </div>
         <Progress value={scorePercent} aria-label={`Score ${scorePercent}%`} />
-      </div>
-      <div className="space-y-3 rounded-lg border border-muted/60 bg-muted/20 p-4">
-        <div className="flex items-center justify-between gap-3">
-          <p className="text-sm font-semibold text-muted-foreground">Personalised snapshot</p>
-          <span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">Your mix</span>
-        </div>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div className="space-y-2">
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Strengths</p>
-            {strengths.length ? (
-              <ul className="space-y-1 text-sm text-foreground">
-                {strengths.map((item) => (
-                  <li key={item} className="rounded-md bg-background px-3 py-2 shadow-xs">
-                    {item}
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="text-sm text-muted-foreground">Solid foundations to build on.</p>
-            )}
-          </div>
-          <div className="space-y-2">
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Focus areas</p>
-            {focusAreas.length ? (
-              <ul className="space-y-1 text-sm text-foreground">
-                {focusAreas.map((item) => (
-                  <li key={item} className="rounded-md bg-background px-3 py-2 shadow-xs">
-                    {item}
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="text-sm text-muted-foreground">No glaring gaps - time to scale the winners.</p>
-            )}
-          </div>
-        </div>
-        <p className="text-sm text-muted-foreground">
-          We'll tailor an action plan around the weak spots above, especially the messaging if it scored low.
-        </p>
       </div>
       <div className="space-y-3 rounded-lg border border-muted/60 bg-background p-4 shadow-sm">
         <div className="flex items-center justify-between">
@@ -224,6 +185,45 @@ export function ResultsView({ totalScore, maxScore, scorePercent, answers, onRes
           </Button>
         </div>
       </form>
+      <div className="space-y-3 rounded-lg border border-muted/60 bg-muted/20 p-4">
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-sm font-semibold text-muted-foreground">Personalised snapshot</p>
+          <span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">Your mix</span>
+        </div>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="space-y-2">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Strengths</p>
+            {strengths.length ? (
+              <ul className="space-y-1 text-sm text-foreground">
+                {strengths.map((item) => (
+                  <li key={item} className="rounded-md bg-background px-3 py-2 shadow-xs">
+                    {item}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-sm text-muted-foreground">Solid foundations to build on.</p>
+            )}
+          </div>
+          <div className="space-y-2">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Focus areas</p>
+            {focusAreas.length ? (
+              <ul className="space-y-1 text-sm text-foreground">
+                {focusAreas.map((item) => (
+                  <li key={item} className="rounded-md bg-background px-3 py-2 shadow-xs">
+                    {item}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-sm text-muted-foreground">No glaring gaps - time to scale the winners.</p>
+            )}
+          </div>
+        </div>
+        <p className="text-sm text-muted-foreground">
+          We'll tailor an action plan around the weak spots above, especially the messaging if it scored low.
+        </p>
+      </div>
       {onRestart ? (
         <div className="pt-2">
           <Button variant="outline" onClick={onRestart} className="w-full sm:w-auto">

@@ -11,7 +11,7 @@ import { ProgressHeader } from "./ProgressHeader";
 import { QuestionStep } from "./QuestionStep";
 import { ResultsView } from "./ResultsView";
 
-const loadingMessages = [
+const loadingMessagesPool = [
   {
     title: "Setting up your score...",
     description: "Crunching your answers to find signal.",
@@ -28,6 +28,22 @@ const loadingMessages = [
     title: "Almost done",
     description: "Packaging your personalised plan.",
   },
+  {
+    title: "Double-checking your answers...",
+    description: "Making sure every response influences your score correctly.",
+  },
+  {
+    title: "Looking for hidden wins...",
+    description: "Scanning for easy fixes that unlock fast growth.",
+  },
+  {
+    title: "Prioritising action steps...",
+    description: "Ranking fixes by impact so you know where to start.",
+  },
+  {
+    title: "Tuning recommendations...",
+    description: "Adjusting advice based on your model and pricing.",
+  },
 ];
 
 export function Quiz() {
@@ -35,7 +51,8 @@ export function Quiz() {
   const [answers, setAnswers] = useState<Record<string, AnswerOption | undefined>>({});
   const [showResults, setShowResults] = useState(false);
   const [isLoadingResults, setIsLoadingResults] = useState(false);
-  const [loadingStep, setLoadingStep] = useState(0);
+  const [loadingProgress, setLoadingProgress] = useState(0);
+  const [loadingMessages, setLoadingMessages] = useState(loadingMessagesPool);
 
   const totalQuestions = questions.length;
   const currentQuestion = questions[currentQuestionIndex];
@@ -56,21 +73,36 @@ export function Quiz() {
   useEffect(() => {
     if (!isLoadingResults) return;
 
-    setLoadingStep(0);
-    const timer = setInterval(() => {
-      setLoadingStep((prev) => {
-        const nextStep = prev + 1;
-        if (nextStep >= loadingMessages.length) {
-          clearInterval(timer);
-          setIsLoadingResults(false);
-          setShowResults(true);
-          return prev;
-        }
-        return nextStep;
-      });
-    }, 850);
+    // randomise message order and pace to feel more human
+    const shuffled = [...loadingMessagesPool].sort(() => Math.random() - 0.5);
+    setLoadingMessages(shuffled);
+    setLoadingProgress(0);
 
-    return () => clearInterval(timer);
+    let timeoutId: ReturnType<typeof setTimeout>;
+
+    const tick = () => {
+      const delay = 800 + Math.random() * 700; // 0.8s - 1.5s between updates
+      timeoutId = setTimeout(() => {
+        setLoadingProgress((prev) => {
+          if (prev >= 100) return 100;
+          const increment = 8 + Math.random() * 14; // 8% - 22% increments
+          const next = Math.min(100, Math.round(prev + increment));
+          if (next >= 100) {
+            setTimeout(() => {
+              setIsLoadingResults(false);
+              setShowResults(true);
+            }, 500);
+          } else {
+            tick();
+          }
+          return next;
+        });
+      }, delay);
+    };
+
+    tick();
+
+    return () => clearTimeout(timeoutId);
   }, [isLoadingResults]);
 
   const handleSelect = (option: AnswerOption) => {
@@ -100,7 +132,7 @@ export function Quiz() {
     setAnswers({});
     setShowResults(false);
     setIsLoadingResults(false);
-    setLoadingStep(0);
+    setLoadingProgress(0);
     setCurrentQuestionIndex(0);
   };
 
@@ -108,55 +140,78 @@ export function Quiz() {
   const isLast = currentQuestionIndex === totalQuestions - 1;
   const selected = answers[currentQuestion?.id ?? ""];
 
-  return (
-    <Card className="w-full max-w-3xl border-muted/60 bg-background/95 shadow-lg">
-      <CardContent className="space-y-6 p-4 sm:p-6 lg:p-8">
-        {!showResults && !isLoadingResults ? (
-          <div className="space-y-6">
-            <ProgressHeader currentQuestionIndex={currentQuestionIndex} totalQuestions={totalQuestions} />
-            <QuestionStep
-              question={currentQuestion}
-              selectedOptionId={selected?.id}
-              onSelectOption={handleSelect}
-            />
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-              <div className="text-sm text-muted-foreground">{Math.round(progress)}% complete</div>
-              <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row">
-                <Button variant="outline" onClick={handlePrevious} disabled={isFirst} className="w-full sm:w-32">
-                  Previous
-                </Button>
-                <Button onClick={handleNext} disabled={!selected} className="w-full sm:w-40">
-                  {isLast ? "See My Results" : "Next"}
-                </Button>
-              </div>
-            </div>
-          </div>
-        ) : isLoadingResults ? (
-          <div className="space-y-6 rounded-xl border border-dashed border-muted/60 bg-muted/20 p-6 text-center shadow-sm">
-            <div className="mx-auto h-12 w-12 rounded-full border-4 border-muted/60 border-t-primary animate-spin" />
+  const loadingMessage =
+    loadingMessages[Math.min(loadingMessages.length - 1, Math.floor((loadingProgress / 100) * loadingMessages.length))] ??
+    loadingMessages[0];
+  const loadingPercent = loadingProgress;
+
+  if (isLoadingResults) {
+    return (
+      <div className="fixed inset-0 z-20 overflow-y-auto bg-background px-4 py-12 sm:px-6">
+        <div className="mx-auto flex min-h-screen max-w-5xl flex-col items-center justify-center gap-8 text-center">
+          <div className="space-y-4">
+            <div className="mx-auto h-16 w-16 rounded-full border-4 border-muted/60 border-t-primary/80 animate-spin" />
             <div className="space-y-2">
-              <p className="text-lg font-semibold">{loadingMessages[loadingStep]?.title}</p>
-              <p className="text-sm text-muted-foreground">
-                {loadingMessages[loadingStep]?.description ?? "Preparing your personalised results..."}
+              <p className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Hang tight</p>
+              <h2 className="text-2xl font-semibold leading-tight sm:text-3xl">{loadingMessage?.title}</h2>
+              <p className="text-base text-muted-foreground">
+                {loadingMessage?.description ?? "Preparing your personalised results..."}
               </p>
             </div>
-            <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+            <div className="h-2 w-full max-w-xl overflow-hidden rounded-full bg-muted">
               <div
                 className="h-full rounded-full bg-primary/80 transition-all"
-                style={{ width: `${((loadingStep + 1) / loadingMessages.length) * 100}%` }}
+                style={{ width: `${loadingPercent}%` }}
               />
             </div>
             <p className="text-xs uppercase tracking-wide text-muted-foreground">Analysing your answers</p>
           </div>
-        ) : (
-          <ResultsView
-            totalScore={totalScore}
-            maxScore={maxScore}
-            scorePercent={scorePercent}
-            answers={answers}
-            onRestart={handleRestart}
-          />
-        )}
+        </div>
+      </div>
+    );
+  }
+
+  if (showResults) {
+    return (
+      <div className="fixed inset-0 z-20 overflow-y-auto bg-background px-4 py-12 sm:px-6 lg:px-10">
+        <div className="mx-auto flex min-h-screen max-w-5xl flex-col gap-8">
+          <header className="space-y-2 text-center sm:text-left">
+            <p className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Your personalised report</p>
+            <h2 className="text-3xl font-semibold leading-tight sm:text-4xl">Here are your results</h2>
+            <p className="text-base text-muted-foreground">Save them or retake the quiz below.</p>
+          </header>
+          <div className="rounded-2xl border border-muted/60 bg-card/95 p-5 shadow-lg sm:p-8">
+            <ResultsView
+              totalScore={totalScore}
+              maxScore={maxScore}
+              scorePercent={scorePercent}
+              answers={answers}
+              onRestart={handleRestart}
+            />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <Card className="mx-auto w-full max-w-4xl border-muted/60 bg-card/95 shadow-lg md:max-w-5xl">
+      <CardContent className="space-y-6 p-4 sm:p-6 lg:p-8">
+        <div className="space-y-6">
+          <ProgressHeader currentQuestionIndex={currentQuestionIndex} totalQuestions={totalQuestions} />
+          <QuestionStep question={currentQuestion} selectedOptionId={selected?.id} onSelectOption={handleSelect} />
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="text-sm text-muted-foreground">{Math.round(progress)}% complete</div>
+            <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row">
+              <Button variant="outline" onClick={handlePrevious} disabled={isFirst} className="w-full sm:w-32">
+                Previous
+              </Button>
+              <Button onClick={handleNext} disabled={!selected} className="w-full sm:w-40">
+                {isLast ? "See My Results" : "Next"}
+              </Button>
+            </div>
+          </div>
+        </div>
       </CardContent>
     </Card>
   );
