@@ -23,9 +23,9 @@ export default function QuizPage() {
               </p>
               <Badge
                 variant="secondary"
-                className="inline-flex w-fit items-center justify-center rounded-full border border-primary/40 bg-primary/15 px-4 py-1 text-xs font-medium text-foreground sm:text-sm md:text-base"
-              >
-                BONUS: See how much revenue you&apos;re leaving on the table.
+                className="inline-flex sm:w-fit w-full items-center justify-center rounded-full border border-primary/40 bg-primary/15 px-4 py-1 text-[clamp(0.5rem, 1vw, 1rem)] font-medium text-foreground"
+                >
+                BONUS: See how much revenue you&apos;re leaving behind.
               </Badge>
             </div>
           </div>

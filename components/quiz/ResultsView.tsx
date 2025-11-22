@@ -1,4 +1,10 @@
+"use client";
+
+import { type FormEvent, useState } from "react";
+
 import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { AnswerOption } from "@/lib/quiz/types";
 
@@ -116,6 +122,57 @@ const estimateRevenueUpside = (answers: Record<string, AnswerOption | undefined>
 export function ResultsView({ totalScore, maxScore, scorePercent, answers, onRestart }: ResultsViewProps) {
   const { strengths, focusAreas } = deriveInsights(answers);
   const revenue = estimateRevenueUpside(answers);
+  const [email, setEmail] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [isSuccess, setIsSuccess] = useState(false);
+
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!email) return;
+
+    const answerPayload = Object.fromEntries(
+      Object.entries(answers)
+        .filter(([, answer]) => answer !== undefined)
+        .map(([key, answer]) => [key, answer as AnswerOption]),
+    );
+
+    const weakestCategories = Object.entries(answers)
+      .filter(([, answer]) => answer && answer.score <= 1)
+      .map(([key]) => key);
+
+    setIsSubmitting(true);
+    setSubmitError(null);
+
+    try {
+      const response = await fetch("/api/quiz/submit", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          email,
+          answers: answerPayload,
+          totalScore,
+          maxScore,
+          scorePercent,
+          weakestCategories: weakestCategories.length ? weakestCategories : undefined,
+        }),
+      });
+
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        throw new Error(body?.error ?? "Something went wrong. Please try again.");
+      }
+
+      setIsSuccess(true);
+    } catch (error) {
+      setIsSuccess(false);
+      setSubmitError(error instanceof Error ? error.message : "Could not send results. Please try again.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   return (
     <div className="space-y-5 sm:space-y-6">
@@ -145,46 +202,6 @@ export function ResultsView({ totalScore, maxScore, scorePercent, answers, onRes
           {revenue.details.billingMultiplier}x value).
         </p>
       </div>
-      <form
-        className="space-y-4 rounded-lg border border-muted/60 bg-muted/30 p-4"
-        onSubmit={(event) => event.preventDefault()}
-      >
-        <div className="space-y-2">
-          <h3 className="text-lg font-semibold">Send me the funnel fix</h3>
-          <p className="text-sm text-muted-foreground">
-            Drop your details and we'll email a concise doc on how to shore up the weak spots above.
-          </p>
-        </div>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <label className="space-y-2 text-sm font-medium">
-            <span>Name</span>
-            <input
-              name="name"
-              placeholder="Your name"
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-xs focus-visible:ring-2 focus-visible:ring-ring"
-              required
-            />
-          </label>
-          <label className="space-y-2 text-sm font-medium">
-            <span>Email</span>
-            <input
-              type="email"
-              name="email"
-              placeholder="you@example.com"
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-xs focus-visible:ring-2 focus-visible:ring-ring"
-              required
-            />
-          </label>
-        </div>
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-sm text-muted-foreground">
-            We'll send practical fixes for your funnel - no spam, just one focused email.
-          </p>
-          <Button type="submit" className="w-full sm:w-auto">
-            Send me the document
-          </Button>
-        </div>
-      </form>
       <div className="space-y-3 rounded-lg border border-muted/60 bg-muted/20 p-4">
         <div className="flex items-center justify-between gap-3">
           <p className="text-sm font-semibold text-muted-foreground">Personalised snapshot</p>
@@ -224,6 +241,39 @@ export function ResultsView({ totalScore, maxScore, scorePercent, answers, onRes
           We'll tailor an action plan around the weak spots above, especially the messaging if it scored low.
         </p>
       </div>
+      <Card className="border-muted/60 bg-background/70 shadow-sm">
+        <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <h3 className="text-lg font-semibold">Want the full breakdown?</h3>
+            <p className="text-sm text-muted-foreground">
+              Enter your email and we'll send your score, bottlenecks, and the fix guide.
+            </p>
+          </div>
+          <form className="flex flex-col gap-3 sm:flex-row sm:items-center" onSubmit={handleSubmit}>
+            <Input
+              type="email"
+              placeholder="you@example.com"
+              value={email}
+              onChange={(event) => {
+                setEmail(event.target.value);
+                if (submitError) setSubmitError(null);
+                if (isSuccess) setIsSuccess(false);
+              }}
+              required
+              disabled={isSubmitting}
+            />
+            <Button type="submit" className="w-full sm:w-auto" disabled={isSubmitting || !email}>
+              {isSubmitting ? "Sending..." : isSuccess ? "Sent" : "Send My Results"}
+            </Button>
+          </form>
+          {submitError ? <p className="text-sm text-destructive">{submitError}</p> : null}
+          {isSuccess ? (
+            <p className="text-sm font-medium text-emerald-600 dark:text-emerald-400">
+              Check your inbox -- your results are on the way.
+            </p>
+          ) : null}
+        </CardContent>
+      </Card>
       {onRestart ? (
         <div className="pt-2">
           <Button variant="outline" onClick={onRestart} className="w-full sm:w-auto">
