@@ -7,6 +7,7 @@ import { z } from "zod";
  * Zod v4 schema
  */
 const payloadSchema = z.object({
+  firstName: z.string().min(1),
   email: z.string().email(),
   answers: z.record(
     z.string(),
@@ -75,7 +76,7 @@ const scoreDiagnosis = (scorePercent: number) => {
   return "Your funnel is performing well with room for optimisation.";
 };
 
-const buildEmailHtml = (scorePercent: number) => {
+const buildEmailHtml = (scorePercent: number, firstName: string) => {
   const diagnosis = scoreDiagnosis(scorePercent);
 
   return `<!doctype html>
@@ -116,6 +117,7 @@ const buildEmailHtml = (scorePercent: number) => {
 
       <div class="card">
         <h1>Your Funnel Score is ${scorePercent}% ✅</h1>
+        <p>Hey ${firstName},</p>
         <p>${diagnosis}</p>
         <p>Below is the fastest path to fix the bottlenecks we detected.</p>
 
@@ -186,6 +188,7 @@ export async function POST(request: Request) {
   }
 
   const {
+    firstName,
     email,
     answers,
     totalScore,
@@ -200,6 +203,7 @@ export async function POST(request: Request) {
   const { error: insertError } = await supabase
     .from("quiz_submissions")
     .insert({
+      first_name: firstName,
       email,
       answers,
       total_score: totalScore,
@@ -219,7 +223,7 @@ export async function POST(request: Request) {
   }
 
   // Build + send email
-  const html = buildEmailHtml(scorePercent);
+  const html = buildEmailHtml(scorePercent, firstName);
 
   try {
     const res = await sesClient.send(
@@ -240,7 +244,6 @@ export async function POST(request: Request) {
 
     console.log("SES SEND SUCCESS:", res?.$metadata);
   } catch (error: any) {
-    // This will show you the REAL reason (sandbox, unverified sender, bad keys, wrong region, etc.)
     console.error("SES SEND ERROR:", error?.name, error?.message, error);
 
     return NextResponse.json(
