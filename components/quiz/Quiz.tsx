@@ -11,6 +11,43 @@ import { ProgressHeader } from "./ProgressHeader";
 import { QuestionStep } from "./QuestionStep";
 import { ResultsView } from "./ResultsView";
 
+/** ---------------------------
+ *  UTM CAPTURE (stored for ResultsView submit)
+ *  -------------------------- */
+type UtmPayload = {
+  source?: string;
+  campaign?: string;
+  adset?: string;
+  content?: string;
+};
+
+const UTM_STORAGE_KEY = "dsgnr_utms_v1";
+
+function captureUtmsFromUrl(): UtmPayload {
+  const params = new URLSearchParams(window.location.search);
+  return {
+    source: params.get("utm_source") ?? undefined,
+    campaign: params.get("utm_campaign") ?? undefined,
+    adset: params.get("utm_adset") ?? undefined,
+    content: params.get("utm_content") ?? undefined,
+  };
+}
+
+function getStoredUtm(): UtmPayload {
+  try {
+    return JSON.parse(localStorage.getItem(UTM_STORAGE_KEY) || "{}");
+  } catch {
+    return {};
+  }
+}
+
+function storeUtm(newUtm: UtmPayload) {
+  const current = getStoredUtm();
+  const merged = { ...current, ...newUtm };
+  localStorage.setItem(UTM_STORAGE_KEY, JSON.stringify(merged));
+  return merged;
+}
+
 const loadingMessagesPool = [
   {
     title: "Setting up your score...",
@@ -69,6 +106,12 @@ export function Quiz() {
   );
 
   const scorePercent = Math.round((totalScore / maxScore) * 100);
+
+  /** Capture UTMs once on landing and persist */
+  useEffect(() => {
+    const fromUrl = captureUtmsFromUrl();
+    storeUtm(fromUrl);
+  }, []);
 
   useEffect(() => {
     if (!isLoadingResults) return;
@@ -159,10 +202,7 @@ export function Quiz() {
               </p>
             </div>
             <div className="h-2 w-full max-w-xl overflow-hidden rounded-full bg-muted">
-              <div
-                className="h-full rounded-full bg-primary/80 transition-all"
-                style={{ width: `${loadingPercent}%` }}
-              />
+              <div className="h-full rounded-full bg-primary/80 transition-all" style={{ width: `${loadingPercent}%` }} />
             </div>
             <p className="text-xs uppercase tracking-wide text-muted-foreground">Analysing your answers</p>
           </div>

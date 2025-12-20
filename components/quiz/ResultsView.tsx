@@ -7,6 +7,27 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { AnswerOption } from "@/lib/quiz/types";
+// import { trackMetaEvent } from "@/lib/metaPixel"; // not needed if using fbq directly
+
+/** ---------------------------
+ *  UTM READ (from Quiz.tsx localStorage capture)
+ *  -------------------------- */
+type UtmPayload = {
+  source?: string;
+  campaign?: string;
+  adset?: string;
+  content?: string;
+};
+
+const UTM_STORAGE_KEY = "dsgnr_utms_v1";
+
+function getStoredUtm(): UtmPayload {
+  try {
+    return JSON.parse(localStorage.getItem(UTM_STORAGE_KEY) || "{}");
+  } catch {
+    return {};
+  }
+}
 
 interface ResultsViewProps {
   totalScore: number;
@@ -93,23 +114,16 @@ const estimateRevenueUpside = (answers: Record<string, AnswerOption | undefined>
   const conversionScore = answers.conversion_rate?.score ?? 1;
 
   const avgTicket = priceByScore[offerPriceScore] ?? priceByScore[1];
-  const billingMultiplier =
-    billingMultiplierByScore[billingScore] ?? billingMultiplierByScore[0];
-  const monthlyLeads =
-    leadVolumeByScore[leadVolumeScore] ?? leadVolumeByScore[1];
-  const currentConversion =
-    conversionRateByScore[conversionScore] ?? conversionRateByScore[1];
+  const billingMultiplier = billingMultiplierByScore[billingScore] ?? billingMultiplierByScore[0];
+  const monthlyLeads = leadVolumeByScore[leadVolumeScore] ?? leadVolumeByScore[1];
+  const currentConversion = conversionRateByScore[conversionScore] ?? conversionRateByScore[1];
   const targetConversion = Math.min(
-    conversionRateByScore[
-      Math.min(conversionScore + 1, conversionRateByScore.length - 1)
-    ] + 0.05,
+    conversionRateByScore[Math.min(conversionScore + 1, conversionRateByScore.length - 1)] + 0.05,
     0.35
   );
 
-  const currentRevenue =
-    monthlyLeads * currentConversion * avgTicket * billingMultiplier;
-  const optimisedRevenue =
-    monthlyLeads * targetConversion * avgTicket * billingMultiplier;
+  const currentRevenue = monthlyLeads * currentConversion * avgTicket * billingMultiplier;
+  const optimisedRevenue = monthlyLeads * targetConversion * avgTicket * billingMultiplier;
   const upside = Math.max(0, Math.round(optimisedRevenue - currentRevenue));
 
   return {
@@ -117,10 +131,8 @@ const estimateRevenueUpside = (answers: Record<string, AnswerOption | undefined>
     details: {
       avgTicket,
       billingMultiplier,
-      billingLabel:
-        answers.billing_model?.label ?? "current billing model",
-      priceLabel:
-        answers.offer_price?.label ?? "your current price point",
+      billingLabel: answers.billing_model?.label ?? "current billing model",
+      priceLabel: answers.offer_price?.label ?? "your current price point",
       monthlyLeads,
       currentConversion: Math.round(currentConversion * 100),
       targetConversion: Math.round(targetConversion * 100),
@@ -145,6 +157,25 @@ export function ResultsView({
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [isSuccess, setIsSuccess] = useState(false);
 
+  // ✅ Fire Meta Lead AFTER successful submit (reliable + retries)
+  const fireMetaLead = () => {
+    const fire = () => {
+      if (typeof window !== "undefined" && (window as any).fbq) {
+        (window as any).fbq("track", "Lead", { value: 1, currency: "USD" });
+        console.log("[META] Lead fired ✅");
+        return true;
+      }
+      console.log("[META] fbq not ready yet...");
+      return false;
+    };
+
+    if (!fire()) {
+      setTimeout(() => fire(), 300);
+      setTimeout(() => fire(), 1000);
+      setTimeout(() => fire(), 2000);
+    }
+  };
+
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!email || !firstName) return;
@@ -158,6 +189,8 @@ export function ResultsView({
     const weakestCategories = Object.entries(answers)
       .filter(([, answer]) => answer && answer.score <= 1)
       .map(([key]) => key);
+
+    const utm = getStoredUtm();
 
     setIsSubmitting(true);
     setSubmitError(null);
@@ -175,25 +208,25 @@ export function ResultsView({
           totalScore,
           maxScore,
           scorePercent,
-          weakestCategories:
-            weakestCategories.length ? weakestCategories : undefined,
+          weakestCategories: weakestCategories.length ? weakestCategories : undefined,
+          utm,
         }),
       });
 
       if (!response.ok) {
         const body = await response.json().catch(() => null);
-        throw new Error(
-          body?.error ?? "Something went wrong. Please try again."
-        );
+        throw new Error(body?.error ?? "Something went wrong. Please try again.");
       }
 
+      // ✅ mark success
       setIsSuccess(true);
+
+      // ✅ fire lead conversion
+      fireMetaLead();
     } catch (error) {
       setIsSuccess(false);
       setSubmitError(
-        error instanceof Error
-          ? error.message
-          : "Could not send results. Please try again."
+        error instanceof Error ? error.message : "Could not send results. Please try again."
       );
     } finally {
       setIsSubmitting(false);
@@ -233,8 +266,8 @@ export function ResultsView({
           {formatCurrency(revenue.upside)}
         </p>
         <p className="text-sm text-muted-foreground">
-          Based on {revenue.details.monthlyLeads} leads/month, raising
-          conversions from {revenue.details.currentConversion}% to about{" "}
+          Based on {revenue.details.monthlyLeads} leads/month, raising conversions
+          from {revenue.details.currentConversion}% to about{" "}
           {revenue.details.targetConversion}% and a{" "}
           {revenue.details.priceLabel.toLowerCase()} worth roughly{" "}
           {formatCurrency(revenue.details.avgTicket)} (
@@ -253,6 +286,7 @@ export function ResultsView({
             Your mix
           </span>
         </div>
+
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-2">
             <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -261,10 +295,7 @@ export function ResultsView({
             {strengths.length ? (
               <ul className="space-y-1 text-sm text-foreground">
                 {strengths.map((item) => (
-                  <li
-                    key={item}
-                    className="rounded-md bg-background px-3 py-2 shadow-xs"
-                  >
+                  <li key={item} className="rounded-md bg-background px-3 py-2 shadow-xs">
                     {item}
                   </li>
                 ))}
@@ -283,10 +314,7 @@ export function ResultsView({
             {focusAreas.length ? (
               <ul className="space-y-1 text-sm text-foreground">
                 {focusAreas.map((item) => (
-                  <li
-                    key={item}
-                    className="rounded-md bg-background px-3 py-2 shadow-xs"
-                  >
+                  <li key={item} className="rounded-md bg-background px-3 py-2 shadow-xs">
                     {item}
                   </li>
                 ))}
@@ -298,9 +326,9 @@ export function ResultsView({
             )}
           </div>
         </div>
+
         <p className="text-sm text-muted-foreground">
-          We'll tailor an action plan around the weak spots above, especially
-          the messaging if it scored low.
+          We'll tailor an action plan around the weak spots above, especially the messaging if it scored low.
         </p>
       </div>
 
@@ -310,8 +338,7 @@ export function ResultsView({
           <div className="space-y-2">
             <h3 className="text-lg font-semibold">Want the full breakdown?</h3>
             <p className="text-sm text-muted-foreground">
-              Enter your name & email and we'll send your score, bottlenecks,
-              and the fix guide.
+              Enter your name & email and we'll send your score, bottlenecks, and the fix guide.
             </p>
           </div>
 
@@ -350,17 +377,11 @@ export function ResultsView({
               className="w-full sm:w-auto"
               disabled={isSubmitting || !email || !firstName}
             >
-              {isSubmitting
-                ? "Sending..."
-                : isSuccess
-                ? "Sent"
-                : "Send My Results"}
+              {isSubmitting ? "Sending..." : isSuccess ? "Sent" : "Send My Results"}
             </Button>
           </form>
 
-          {submitError ? (
-            <p className="text-sm text-destructive">{submitError}</p>
-          ) : null}
+          {submitError ? <p className="text-sm text-destructive">{submitError}</p> : null}
 
           {isSuccess ? (
             <p className="text-sm font-medium text-emerald-600 dark:text-emerald-400">
@@ -384,4 +405,3 @@ export function ResultsView({
     </div>
   );
 }
-
