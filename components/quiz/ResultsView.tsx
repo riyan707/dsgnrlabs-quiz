@@ -7,7 +7,6 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { AnswerOption } from "@/lib/quiz/types";
-// import { trackMetaEvent } from "@/lib/metaPixel"; // not needed if using fbq directly
 
 /** ---------------------------
  *  UTM READ (from Quiz.tsx localStorage capture)
@@ -28,6 +27,12 @@ function getStoredUtm(): UtmPayload {
     return {};
   }
 }
+
+/** ---------------------------
+ *  META PIXEL
+ *  -------------------------- */
+const PIXEL_ID = process.env.NEXT_PUBLIC_META_PIXEL_ID;
+
 
 interface ResultsViewProps {
   totalScore: number;
@@ -157,23 +162,47 @@ export function ResultsView({
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [isSuccess, setIsSuccess] = useState(false);
 
-  // ✅ Fire Meta Lead AFTER successful submit (reliable + retries)
+  // ✅ Fire Meta Lead AFTER successful submit (wait + init + track)
   const fireMetaLead = () => {
-    const fire = () => {
-      if (typeof window !== "undefined" && (window as any).fbq) {
-        (window as any).fbq("track", "Lead", { value: 1, currency: "USD" });
-        console.log("[META] Lead fired ✅");
-        return true;
-      }
-      console.log("[META] fbq not ready yet...");
-      return false;
-    };
+    let attempts = 0;
+    const maxAttempts = 30; // 30 * 200ms = 6 seconds
 
-    if (!fire()) {
-      setTimeout(() => fire(), 300);
-      setTimeout(() => fire(), 1000);
-      setTimeout(() => fire(), 2000);
-    }
+    const timer = setInterval(() => {
+      attempts += 1;
+
+      if (typeof window === "undefined") return;
+
+      const fbq = window.fbq;
+
+      if (fbq) {
+        // ensure init happened (safe; ignores duplicates)
+        if (PIXEL_ID) {
+          try {
+            fbq("init", PIXEL_ID);
+          } catch {
+            // ignore
+          }
+        }
+
+        fbq("track", "Lead", { value: 1, currency: "USD" });
+        fbq("track", "CompleteRegistration");
+
+        console.log("[META] Lead + CompleteRegistration fired ✅", {
+          pixelId: PIXEL_ID,
+        });
+
+        clearInterval(timer);
+        return;
+      }
+
+      if (attempts >= maxAttempts) {
+        console.log("[META] fbq never became ready ❌", {
+          pixelId: PIXEL_ID,
+          attempts,
+        });
+        clearInterval(timer);
+      }
+    }, 200);
   };
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -196,6 +225,8 @@ export function ResultsView({
     setSubmitError(null);
 
     try {
+      console.log("[SUBMIT] starting", { firstName, email });
+
       const response = await fetch("/api/quiz/submit", {
         method: "POST",
         headers: {
@@ -218,16 +249,13 @@ export function ResultsView({
         throw new Error(body?.error ?? "Something went wrong. Please try again.");
       }
 
-      // ✅ mark success
-      setIsSuccess(true);
+      console.log("[SUBMIT] success -> firing Lead");
 
-      // ✅ fire lead conversion
+      setIsSuccess(true);
       fireMetaLead();
     } catch (error) {
       setIsSuccess(false);
-      setSubmitError(
-        error instanceof Error ? error.message : "Could not send results. Please try again."
-      );
+      setSubmitError(error instanceof Error ? error.message : "Could not send results. Please try again.");
     } finally {
       setIsSubmitting(false);
     }
@@ -258,40 +286,27 @@ export function ResultsView({
           <p className="text-sm font-semibold text-muted-foreground">
             Revenue left on the table (per month)
           </p>
-          <span className="text-xs uppercase tracking-wide text-muted-foreground">
-            Estimate
-          </span>
+          <span className="text-xs uppercase tracking-wide text-muted-foreground">Estimate</span>
         </div>
-        <p className="text-3xl font-semibold text-primary">
-          {formatCurrency(revenue.upside)}
-        </p>
+        <p className="text-3xl font-semibold text-primary">{formatCurrency(revenue.upside)}</p>
         <p className="text-sm text-muted-foreground">
-          Based on {revenue.details.monthlyLeads} leads/month, raising conversions
-          from {revenue.details.currentConversion}% to about{" "}
-          {revenue.details.targetConversion}% and a{" "}
-          {revenue.details.priceLabel.toLowerCase()} worth roughly{" "}
-          {formatCurrency(revenue.details.avgTicket)} (
-          {revenue.details.billingLabel.toLowerCase()} ~{" "}
-          {revenue.details.billingMultiplier}x value).
+          Based on {revenue.details.monthlyLeads} leads/month, raising conversions from{" "}
+          {revenue.details.currentConversion}% to about {revenue.details.targetConversion}% and a{" "}
+          {revenue.details.priceLabel.toLowerCase()} worth roughly {formatCurrency(revenue.details.avgTicket)} (
+          {revenue.details.billingLabel.toLowerCase()} ~ {revenue.details.billingMultiplier}x value).
         </p>
       </div>
 
       {/* Snapshot */}
       <div className="space-y-3 rounded-lg border border-muted/60 bg-muted/20 p-4">
         <div className="flex items-center justify-between gap-3">
-          <p className="text-sm font-semibold text-muted-foreground">
-            Personalised snapshot
-          </p>
-          <span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
-            Your mix
-          </span>
+          <p className="text-sm font-semibold text-muted-foreground">Personalised snapshot</p>
+          <span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">Your mix</span>
         </div>
 
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-2">
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Strengths
-            </p>
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Strengths</p>
             {strengths.length ? (
               <ul className="space-y-1 text-sm text-foreground">
                 {strengths.map((item) => (
@@ -301,16 +316,12 @@ export function ResultsView({
                 ))}
               </ul>
             ) : (
-              <p className="text-sm text-muted-foreground">
-                Solid foundations to build on.
-              </p>
+              <p className="text-sm text-muted-foreground">Solid foundations to build on.</p>
             )}
           </div>
 
           <div className="space-y-2">
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Focus areas
-            </p>
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Focus areas</p>
             {focusAreas.length ? (
               <ul className="space-y-1 text-sm text-foreground">
                 {focusAreas.map((item) => (
@@ -320,9 +331,7 @@ export function ResultsView({
                 ))}
               </ul>
             ) : (
-              <p className="text-sm text-muted-foreground">
-                No glaring gaps – time to scale the winners.
-              </p>
+              <p className="text-sm text-muted-foreground">No glaring gaps – time to scale the winners.</p>
             )}
           </div>
         </div>
@@ -342,10 +351,7 @@ export function ResultsView({
             </p>
           </div>
 
-          <form
-            className="flex flex-col gap-3 sm:flex-row sm:items-center"
-            onSubmit={handleSubmit}
-          >
+          <form className="flex flex-col gap-3 sm:flex-row sm:items-center" onSubmit={handleSubmit}>
             <Input
               type="text"
               placeholder="First name"
@@ -372,11 +378,7 @@ export function ResultsView({
               disabled={isSubmitting}
             />
 
-            <Button
-              type="submit"
-              className="w-full sm:w-auto"
-              disabled={isSubmitting || !email || !firstName}
-            >
+            <Button type="submit" className="w-full sm:w-auto" disabled={isSubmitting || !email || !firstName}>
               {isSubmitting ? "Sending..." : isSuccess ? "Sent" : "Send My Results"}
             </Button>
           </form>
@@ -393,11 +395,7 @@ export function ResultsView({
 
       {onRestart ? (
         <div className="pt-2">
-          <Button
-            variant="outline"
-            onClick={onRestart}
-            className="w-full sm:w-auto"
-          >
+          <Button variant="outline" onClick={onRestart} className="w-full sm:w-auto">
             Retake quiz
           </Button>
         </div>
