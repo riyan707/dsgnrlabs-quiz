@@ -19,6 +19,7 @@ type UtmPayload = {
 };
 
 const UTM_STORAGE_KEY = "dsgnr_utms_v1";
+const SESSION_KEY = "dsgnr_quiz_session_v1";
 
 function getStoredUtm(): UtmPayload {
   try {
@@ -32,7 +33,6 @@ function getStoredUtm(): UtmPayload {
  *  META PIXEL
  *  -------------------------- */
 const PIXEL_ID = process.env.NEXT_PUBLIC_META_PIXEL_ID;
-
 
 interface ResultsViewProps {
   totalScore: number;
@@ -145,13 +145,7 @@ const estimateRevenueUpside = (answers: Record<string, AnswerOption | undefined>
   };
 };
 
-export function ResultsView({
-  totalScore,
-  maxScore,
-  scorePercent,
-  answers,
-  onRestart,
-}: ResultsViewProps) {
+export function ResultsView({ totalScore, maxScore, scorePercent, answers, onRestart }: ResultsViewProps) {
   const { strengths, focusAreas } = deriveInsights(answers);
   const revenue = estimateRevenueUpside(answers);
 
@@ -165,44 +159,55 @@ export function ResultsView({
   // ✅ Fire Meta Lead AFTER successful submit (wait + init + track)
   const fireMetaLead = () => {
     let attempts = 0;
-    const maxAttempts = 30; // 30 * 200ms = 6 seconds
+    const maxAttempts = 30;
 
     const timer = setInterval(() => {
       attempts += 1;
-
       if (typeof window === "undefined") return;
 
-      const fbq = window.fbq;
+      const fbq = (window as any).fbq;
 
       if (fbq) {
-        // ensure init happened (safe; ignores duplicates)
         if (PIXEL_ID) {
           try {
             fbq("init", PIXEL_ID);
-          } catch {
-            // ignore
-          }
+          } catch {}
         }
 
         fbq("track", "Lead", { value: 1, currency: "USD" });
         fbq("track", "CompleteRegistration");
 
-        console.log("[META] Lead + CompleteRegistration fired ✅", {
-          pixelId: PIXEL_ID,
-        });
+        console.log("[META] Lead + CompleteRegistration fired ✅", { pixelId: PIXEL_ID });
 
         clearInterval(timer);
         return;
       }
 
       if (attempts >= maxAttempts) {
-        console.log("[META] fbq never became ready ❌", {
-          pixelId: PIXEL_ID,
-          attempts,
-        });
+        console.log("[META] fbq never became ready ❌", { pixelId: PIXEL_ID, attempts });
         clearInterval(timer);
       }
     }, 200);
+  };
+
+  // ✅ Log completion to Supabase analytics table
+  const logCompleteEvent = async (utm: UtmPayload) => {
+    const sessionId = localStorage.getItem(SESSION_KEY);
+    if (!sessionId) return;
+
+    try {
+      await fetch("/api/quiz/event", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          session_id: sessionId,
+          event_type: "complete",
+          utm,
+        }),
+      });
+    } catch {
+      // ignore
+    }
   };
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -229,9 +234,7 @@ export function ResultsView({
 
       const response = await fetch("/api/quiz/submit", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           firstName,
           email,
@@ -249,9 +252,14 @@ export function ResultsView({
         throw new Error(body?.error ?? "Something went wrong. Please try again.");
       }
 
-      console.log("[SUBMIT] success -> firing Lead");
+      console.log("[SUBMIT] success -> firing Lead + logging complete");
 
       setIsSuccess(true);
+
+      // ✅ analytics completion
+      await logCompleteEvent(utm);
+
+      // ✅ meta pixel lead
       fireMetaLead();
     } catch (error) {
       setIsSuccess(false);
@@ -283,9 +291,7 @@ export function ResultsView({
       {/* Revenue Upside */}
       <div className="space-y-3 rounded-lg border border-muted/60 bg-background p-4 shadow-sm">
         <div className="flex items-center justify-between">
-          <p className="text-sm font-semibold text-muted-foreground">
-            Revenue left on the table (per month)
-          </p>
+          <p className="text-sm font-semibold text-muted-foreground">Revenue left on the table (per month)</p>
           <span className="text-xs uppercase tracking-wide text-muted-foreground">Estimate</span>
         </div>
         <p className="text-3xl font-semibold text-primary">{formatCurrency(revenue.upside)}</p>

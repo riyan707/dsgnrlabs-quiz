@@ -21,6 +21,44 @@ type UtmPayload = {
   content?: string;
 };
 
+/** ---------------------------
+ *  SESSION + EVENT LOGGING
+ *  -------------------------- */
+const SESSION_KEY = "dsgnr_quiz_session_v1";
+
+function getSessionId(): string {
+  if (typeof window === "undefined")
+    return "00000000-0000-0000-0000-000000000000";
+
+  const existing = localStorage.getItem(SESSION_KEY);
+  if (existing) return existing;
+
+  const id = crypto.randomUUID();
+  localStorage.setItem(SESSION_KEY, id);
+  return id;
+}
+
+async function logQuizEvent(payload: {
+  session_id: string;
+  event_type: "start" | "view_question" | "complete";
+  question_id?: string;
+  question_index?: number;
+  utm?: { source?: string; campaign?: string; adset?: string; content?: string };
+}) {
+  try {
+    await fetch("/api/quiz/event", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+  } catch {
+    // analytics must never break UX
+  }
+}
+
+/** ---------------------------
+ *  UTM STORAGE
+ *  -------------------------- */
 const UTM_STORAGE_KEY = "dsgnr_utms_v1";
 
 function captureUtmsFromUrl(): UtmPayload {
@@ -49,38 +87,14 @@ function storeUtm(newUtm: UtmPayload) {
 }
 
 const loadingMessagesPool = [
-  {
-    title: "Setting up your score...",
-    description: "Crunching your answers to find signal.",
-  },
-  {
-    title: "This is interesting...",
-    description: "Spotting where messaging might be leaking.",
-  },
-  {
-    title: "Money is on the table...",
-    description: "Estimating revenue missed by weak links.",
-  },
-  {
-    title: "Almost done",
-    description: "Packaging your personalised plan.",
-  },
-  {
-    title: "Double-checking your answers...",
-    description: "Making sure every response influences your score correctly.",
-  },
-  {
-    title: "Looking for hidden wins...",
-    description: "Scanning for easy fixes that unlock fast growth.",
-  },
-  {
-    title: "Prioritising action steps...",
-    description: "Ranking fixes by impact so you know where to start.",
-  },
-  {
-    title: "Tuning recommendations...",
-    description: "Adjusting advice based on your model and pricing.",
-  },
+  { title: "Setting up your score...", description: "Crunching your answers to find signal." },
+  { title: "This is interesting...", description: "Spotting where messaging might be leaking." },
+  { title: "Money is on the table...", description: "Estimating revenue missed by weak links." },
+  { title: "Almost done", description: "Packaging your personalised plan." },
+  { title: "Double-checking your answers...", description: "Making sure every response influences your score correctly." },
+  { title: "Looking for hidden wins...", description: "Scanning for easy fixes that unlock fast growth." },
+  { title: "Prioritising action steps...", description: "Ranking fixes by impact so you know where to start." },
+  { title: "Tuning recommendations...", description: "Adjusting advice based on your model and pricing." },
 ];
 
 export function Quiz() {
@@ -107,16 +121,46 @@ export function Quiz() {
 
   const scorePercent = Math.round((totalScore / maxScore) * 100);
 
-  /** Capture UTMs once on landing and persist */
+  /** ---------------------------
+   *  ✅ CAPTURE UTMs + FIRE START EVENT (ONCE)
+   *  -------------------------- */
   useEffect(() => {
     const fromUrl = captureUtmsFromUrl();
     storeUtm(fromUrl);
+
+    const sessionId = getSessionId();
+    const utm = getStoredUtm();
+
+    // ✅ start event (only once)
+    logQuizEvent({
+      session_id: sessionId,
+      event_type: "start",
+      utm,
+    });
   }, []);
+
+  /** ---------------------------
+   *  ✅ LOG VIEWED QUESTION (EVERY TIME INDEX CHANGES)
+   *  -------------------------- */
+  useEffect(() => {
+    // don’t spam logs while loading/results
+    if (showResults || isLoadingResults) return;
+
+    const sessionId = getSessionId();
+    const utm = getStoredUtm();
+
+    logQuizEvent({
+      session_id: sessionId,
+      event_type: "view_question",
+      question_id: currentQuestion?.id,
+      question_index: currentQuestionIndex,
+      utm,
+    });
+  }, [currentQuestionIndex, currentQuestion?.id, showResults, isLoadingResults]);
 
   useEffect(() => {
     if (!isLoadingResults) return;
 
-    // randomise message order and pace to feel more human
     const shuffled = [...loadingMessagesPool].sort(() => Math.random() - 0.5);
     setLoadingMessages(shuffled);
     setLoadingProgress(0);
@@ -124,11 +168,11 @@ export function Quiz() {
     let timeoutId: ReturnType<typeof setTimeout>;
 
     const tick = () => {
-      const delay = 800 + Math.random() * 700; // 0.8s - 1.5s between updates
+      const delay = 800 + Math.random() * 700;
       timeoutId = setTimeout(() => {
         setLoadingProgress((prev) => {
           if (prev >= 100) return 100;
-          const increment = 8 + Math.random() * 14; // 8% - 22% increments
+          const increment = 8 + Math.random() * 14;
           const next = Math.min(100, Math.round(prev + increment));
           if (next >= 100) {
             setTimeout(() => {
@@ -144,7 +188,6 @@ export function Quiz() {
     };
 
     tick();
-
     return () => clearTimeout(timeoutId);
   }, [isLoadingResults]);
 
@@ -184,8 +227,9 @@ export function Quiz() {
   const selected = answers[currentQuestion?.id ?? ""];
 
   const loadingMessage =
-    loadingMessages[Math.min(loadingMessages.length - 1, Math.floor((loadingProgress / 100) * loadingMessages.length))] ??
-    loadingMessages[0];
+    loadingMessages[
+      Math.min(loadingMessages.length - 1, Math.floor((loadingProgress / 100) * loadingMessages.length))
+    ] ?? loadingMessages[0];
   const loadingPercent = loadingProgress;
 
   if (isLoadingResults) {
@@ -197,9 +241,7 @@ export function Quiz() {
             <div className="space-y-2">
               <p className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Hang tight</p>
               <h2 className="text-2xl font-semibold leading-tight sm:text-3xl">{loadingMessage?.title}</h2>
-              <p className="text-base text-muted-foreground">
-                {loadingMessage?.description ?? "Preparing your personalised results..."}
-              </p>
+              <p className="text-base text-muted-foreground">{loadingMessage?.description ?? "Preparing..."}</p>
             </div>
             <div className="h-2 w-full max-w-xl overflow-hidden rounded-full bg-muted">
               <div className="h-full rounded-full bg-primary/80 transition-all" style={{ width: `${loadingPercent}%` }} />
