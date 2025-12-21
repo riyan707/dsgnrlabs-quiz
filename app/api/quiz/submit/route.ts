@@ -5,10 +5,10 @@ import { z } from "zod";
 
 /**
  * Zod v4 schema
+ * ✅ now uses session_id and does NOT accept firstName/email directly
  */
 const payloadSchema = z.object({
-  firstName: z.string().min(1),
-  email: z.string().email(),
+  session_id: z.string().min(10),
   answers: z.record(
     z.string(),
     z
@@ -48,7 +48,7 @@ const supabase =
     : null;
 
 /**
- * SES client with explicit credentials (fixes most local failures)
+ * SES client with explicit credentials
  */
 const sesClient =
   process.env.AWS_REGION &&
@@ -60,19 +60,17 @@ const sesClient =
           accessKeyId: process.env.AWS_ACCESS_KEY_ID,
           secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
         },
-        maxAttempts: 1, // fail fast instead of hanging
+        maxAttempts: 1,
       })
     : null;
 
 const NOTION_GUIDE_URL =
   "https://dsgnrlabs.notion.site/The-10-Hidden-Profit-Leaks-Killing-Your-Funnel-2b2e147122b68045838ed144cabc7851";
-const STRIPE_BOOKING_URL =
-  "https://book.stripe.com/28E28s3OpagG43V3OI38401";
+const STRIPE_BOOKING_URL = "https://book.stripe.com/28E28s3OpagG43V3OI38401";
 
 const scoreDiagnosis = (scorePercent: number) => {
   if (scorePercent < 40) return "Your funnel is leaking heavily.";
-  if (scorePercent < 70)
-    return "Your funnel is okay but leaving money on the table.";
+  if (scorePercent < 70) return "Your funnel is okay but leaving money on the table.";
   return "Your funnel is performing well with room for optimisation.";
 };
 
@@ -160,23 +158,14 @@ const buildEmailHtml = (scorePercent: number, firstName: string) => {
 };
 
 export async function POST(request: Request) {
-  // Supabase sanity
   if (!supabase) {
-    return NextResponse.json(
-      { error: "Supabase credentials missing" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Supabase credentials missing" }, { status: 500 });
   }
 
-  // SES sanity
   if (!sesClient || !process.env.SES_FROM_EMAIL) {
-    return NextResponse.json(
-      { error: "Email service not configured" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Email service not configured" }, { status: 500 });
   }
 
-  // Parse body
   const json = await request.json().catch(() => null);
   const parsed = payloadSchema.safeParse(json);
 
@@ -187,42 +176,53 @@ export async function POST(request: Request) {
     );
   }
 
-  const {
-    firstName,
+  const { session_id, answers, totalScore, maxScore, scorePercent, weakestCategories, variant, utm } = parsed.data;
+
+  // ✅ Lookup lead from quiz_sessions
+  const { data: sessionRow, error: sessionErr } = await supabase
+    .from("quiz_sessions")
+    .select("email, first_name")
+    .eq("session_id", session_id)
+    .maybeSingle();
+
+  if (sessionErr) {
+    console.error("SUPABASE SESSION LOOKUP ERROR:", sessionErr);
+    return NextResponse.json({ error: "Failed to lookup session" }, { status: 500 });
+  }
+
+  if (!sessionRow?.email) {
+    return NextResponse.json({ error: "Session not found. Please restart the quiz." }, { status: 400 });
+  }
+
+  const email = sessionRow.email;
+  const firstName = sessionRow.first_name ?? "there";
+
+  // ✅ Insert final submission (same table as before)
+  const { error: insertError } = await supabase.from("quiz_submissions").insert({
+    first_name: firstName,
     email,
     answers,
-    totalScore,
-    maxScore,
-    scorePercent,
-    weakestCategories,
-    variant,
-    utm,
-  } = parsed.data;
-
-  // Insert submission
-  const { error: insertError } = await supabase
-    .from("quiz_submissions")
-    .insert({
-      first_name: firstName,
-      email,
-      answers,
-      total_score: totalScore,
-      max_score: maxScore,
-      score_percent: scorePercent,
-      weakest_categories: weakestCategories ?? null,
-      variant: variant ?? "A",
-      utm: utm ?? null,
-    });
+    total_score: totalScore,
+    max_score: maxScore,
+    score_percent: scorePercent,
+    weakest_categories: weakestCategories ?? null,
+    variant: variant ?? "A",
+    utm: utm ?? null,
+  });
 
   if (insertError) {
     console.error("SUPABASE INSERT ERROR:", insertError);
-    return NextResponse.json(
-      { error: "Failed to save submission" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Failed to save submission" }, { status: 500 });
   }
 
-  // Build + send email
+  // ✅ Mark quiz session completed
+  const now = new Date().toISOString();
+  await supabase
+    .from("quiz_sessions")
+    .update({ status: "completed", completed_at: now, last_seen_at: now })
+    .eq("session_id", session_id);
+
+  // ✅ Send email (same as before)
   const html = buildEmailHtml(scorePercent, firstName);
 
   try {
@@ -231,13 +231,8 @@ export async function POST(request: Request) {
         Destination: { ToAddresses: [email] },
         Source: process.env.SES_FROM_EMAIL,
         Message: {
-          Subject: {
-            Data: "Your Funnel Score + Next Steps (DSGNR Labs)",
-            Charset: "UTF-8",
-          },
-          Body: {
-            Html: { Data: html, Charset: "UTF-8" },
-          },
+          Subject: { Data: "Your Funnel Score + Next Steps (DSGNR Labs)", Charset: "UTF-8" },
+          Body: { Html: { Data: html, Charset: "UTF-8" } },
         },
       })
     );
@@ -245,13 +240,8 @@ export async function POST(request: Request) {
     console.log("SES SEND SUCCESS:", res?.$metadata);
   } catch (error: any) {
     console.error("SES SEND ERROR:", error?.name, error?.message, error);
-
     return NextResponse.json(
-      {
-        error: "Failed to send email",
-        name: error?.name,
-        message: error?.message,
-      },
+      { error: "Failed to send email", name: error?.name, message: error?.message },
       { status: 500 }
     );
   }

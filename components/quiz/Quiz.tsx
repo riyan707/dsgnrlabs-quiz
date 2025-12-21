@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { questions } from "@/lib/quiz/questions";
 import { AnswerOption } from "@/lib/quiz/types";
 
@@ -12,7 +13,7 @@ import { QuestionStep } from "./QuestionStep";
 import { ResultsView } from "./ResultsView";
 
 /** ---------------------------
- *  UTM CAPTURE (stored for ResultsView submit)
+ *  UTM CAPTURE
  *  -------------------------- */
 type UtmPayload = {
   source?: string;
@@ -22,13 +23,12 @@ type UtmPayload = {
 };
 
 /** ---------------------------
- *  SESSION + EVENT LOGGING
+ *  SESSION
  *  -------------------------- */
 const SESSION_KEY = "dsgnr_quiz_session_v1";
 
 function getSessionId(): string {
-  if (typeof window === "undefined")
-    return "00000000-0000-0000-0000-000000000000";
+  if (typeof window === "undefined") return "00000000-0000-0000-0000-000000000000";
 
   const existing = localStorage.getItem(SESSION_KEY);
   if (existing) return existing;
@@ -43,7 +43,7 @@ async function logQuizEvent(payload: {
   event_type: "start" | "view_question" | "complete";
   question_id?: string;
   question_index?: number;
-  utm?: { source?: string; campaign?: string; adset?: string; content?: string };
+  utm?: UtmPayload;
 }) {
   try {
     await fetch("/api/quiz/event", {
@@ -51,9 +51,35 @@ async function logQuizEvent(payload: {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
-  } catch {
-    // analytics must never break UX
-  }
+  } catch {}
+}
+
+/** ---------------------------
+ *  quiz_sessions APIs
+ *  -------------------------- */
+async function startQuizSession(payload: {
+  session_id: string;
+  email: string;
+  first_name?: string;
+  utm?: UtmPayload;
+}) {
+  await fetch("/api/quiz/session/start", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+async function updateQuizProgress(payload: {
+  session_id: string;
+  last_question_index: number;
+  last_question_id?: string | null;
+}) {
+  await fetch("/api/quiz/session/progress", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
 }
 
 /** ---------------------------
@@ -105,45 +131,72 @@ export function Quiz() {
   const [loadingProgress, setLoadingProgress] = useState(0);
   const [loadingMessages, setLoadingMessages] = useState(loadingMessagesPool);
 
+  // ✅ Step 0
+  const [hasStarted, setHasStarted] = useState(false);
+  const [leadFirstName, setLeadFirstName] = useState("");
+  const [leadEmail, setLeadEmail] = useState("");
+  const [leadError, setLeadError] = useState<string | null>(null);
+  const [isStarting, setIsStarting] = useState(false);
+
   const totalQuestions = questions.length;
   const currentQuestion = questions[currentQuestionIndex];
   const progress = ((currentQuestionIndex + 1) / totalQuestions) * 100;
 
   const totalScore = useMemo(
     () => Object.values(answers).reduce((sum, ans) => sum + (ans?.score ?? 0), 0),
-    [answers],
+    [answers]
   );
 
   const maxScore = useMemo(
     () => questions.reduce((sum, q) => sum + Math.max(...q.options.map((o) => o.score)), 0),
-    [],
+    []
   );
 
   const scorePercent = Math.round((totalScore / maxScore) * 100);
 
   /** ---------------------------
-   *  ✅ CAPTURE UTMs + FIRE START EVENT (ONCE)
+   *  ✅ CAPTURE UTMs (ONCE)
    *  -------------------------- */
   useEffect(() => {
     const fromUrl = captureUtmsFromUrl();
     storeUtm(fromUrl);
 
+    // ensure session exists even before Step 0 (for analytics continuity)
+    getSessionId();
+  }, []);
+
+  const handleStart = async () => {
+    setLeadError(null);
+    if (!leadEmail || !leadFirstName) return;
+
     const sessionId = getSessionId();
     const utm = getStoredUtm();
 
-    // ✅ start event (only once)
-    logQuizEvent({
-      session_id: sessionId,
-      event_type: "start",
-      utm,
-    });
-  }, []);
+    setIsStarting(true);
+    try {
+      await startQuizSession({
+        session_id: sessionId,
+        email: leadEmail,
+        first_name: leadFirstName,
+        utm,
+      });
+
+      setHasStarted(true);
+
+      // optional: event start after lead captured (stronger signal)
+      logQuizEvent({ session_id: sessionId, event_type: "start", utm });
+    } catch {
+      setLeadError("Could not start. Please try again.");
+    } finally {
+      setIsStarting(false);
+    }
+  };
 
   /** ---------------------------
-   *  ✅ LOG VIEWED QUESTION (EVERY TIME INDEX CHANGES)
+   *  ✅ LOG VIEWED QUESTION + UPDATE quiz_sessions progress
    *  -------------------------- */
   useEffect(() => {
-    // don’t spam logs while loading/results
+    if (!hasStarted) return;
     if (showResults || isLoadingResults) return;
 
     const sessionId = getSessionId();
@@ -156,7 +209,13 @@ export function Quiz() {
       question_index: currentQuestionIndex,
       utm,
     });
-  }, [currentQuestionIndex, currentQuestion?.id, showResults, isLoadingResults]);
+
+    updateQuizProgress({
+      session_id: sessionId,
+      last_question_index: currentQuestionIndex,
+      last_question_id: currentQuestion?.id ?? null,
+    }).catch(() => {});
+  }, [hasStarted, currentQuestionIndex, currentQuestion?.id, showResults, isLoadingResults]);
 
   useEffect(() => {
     if (!isLoadingResults) return;
@@ -220,6 +279,9 @@ export function Quiz() {
     setIsLoadingResults(false);
     setLoadingProgress(0);
     setCurrentQuestionIndex(0);
+
+    // keep hasStarted true so they can retake without re-entering email
+    // If you WANT them to re-enter identity, setHasStarted(false)
   };
 
   const isFirst = currentQuestionIndex === 0;
@@ -230,7 +292,49 @@ export function Quiz() {
     loadingMessages[
       Math.min(loadingMessages.length - 1, Math.floor((loadingProgress / 100) * loadingMessages.length))
     ] ?? loadingMessages[0];
+
   const loadingPercent = loadingProgress;
+
+  // ✅ Step 0 screen
+  if (!hasStarted) {
+    return (
+      <Card className="mx-auto w-full max-w-4xl border-muted/60 bg-card/95 shadow-lg md:max-w-5xl">
+        <CardContent className="space-y-6 p-4 sm:p-6 lg:p-8">
+          <div className="space-y-2">
+            <p className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Step 1 of 2</p>
+            <h2 className="text-2xl font-semibold leading-tight sm:text-3xl">Get your personalised report</h2>
+            <p className="text-sm text-muted-foreground">Enter your name and email first — then take the 2-minute quiz.</p>
+          </div>
+
+          <div className="space-y-3">
+            <Input
+              type="text"
+              placeholder="First name"
+              value={leadFirstName}
+              onChange={(e) => setLeadFirstName(e.target.value)}
+              disabled={isStarting}
+              required
+            />
+            <Input
+              type="email"
+              placeholder="you@example.com"
+              value={leadEmail}
+              onChange={(e) => setLeadEmail(e.target.value)}
+              disabled={isStarting}
+              required
+            />
+
+            <Button onClick={handleStart} disabled={isStarting || !leadFirstName || !leadEmail} className="w-full sm:w-auto">
+              {isStarting ? "Starting..." : "Start the quiz"}
+            </Button>
+
+            {leadError ? <p className="text-sm text-destructive">{leadError}</p> : null}
+            <p className="text-xs text-muted-foreground">By continuing, you agree to receive your results + relevant tips. Unsubscribe anytime.</p>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
 
   if (isLoadingResults) {
     return (
@@ -260,7 +364,7 @@ export function Quiz() {
           <header className="space-y-2 text-center sm:text-left">
             <p className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Your personalised report</p>
             <h2 className="text-3xl font-semibold leading-tight sm:text-4xl">Here are your results</h2>
-            <p className="text-base text-muted-foreground">Save them or retake the quiz below.</p>
+            <p className="text-base text-muted-foreground">Check your inbox — the full breakdown is being sent.</p>
           </header>
           <div className="rounded-2xl border border-muted/60 bg-card/95 p-5 shadow-lg sm:p-8">
             <ResultsView

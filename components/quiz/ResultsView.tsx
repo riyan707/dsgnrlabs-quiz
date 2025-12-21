@@ -1,10 +1,8 @@
 "use client";
 
-import { type FormEvent, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { AnswerOption } from "@/lib/quiz/types";
 
@@ -101,10 +99,7 @@ const deriveInsights = (answers: Record<string, AnswerOption | undefined>) => {
     .slice(0, 3)
     .map((item) => item.copy.weak);
 
-  return {
-    strengths,
-    focusAreas,
-  };
+  return { strengths, focusAreas };
 };
 
 const priceByScore = [75, 300, 1250, 3200];
@@ -147,14 +142,13 @@ const estimateRevenueUpside = (answers: Record<string, AnswerOption | undefined>
 
 export function ResultsView({ totalScore, maxScore, scorePercent, answers, onRestart }: ResultsViewProps) {
   const { strengths, focusAreas } = deriveInsights(answers);
-  const revenue = estimateRevenueUpside(answers);
+  const revenue = useMemo(() => estimateRevenueUpside(answers), [answers]);
 
-  const [firstName, setFirstName] = useState("");
-  const [email, setEmail] = useState("");
-
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(true);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [isSuccess, setIsSuccess] = useState(false);
+
+  const didSubmit = useRef(false);
 
   // ✅ Fire Meta Lead AFTER successful submit (wait + init + track)
   const fireMetaLead = () => {
@@ -205,14 +199,21 @@ export function ResultsView({ totalScore, maxScore, scorePercent, answers, onRes
           utm,
         }),
       });
-    } catch {
-      // ignore
-    }
+    } catch {}
   };
 
-  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (!email || !firstName) return;
+  useEffect(() => {
+    if (didSubmit.current) return;
+    didSubmit.current = true;
+
+    const sessionId = localStorage.getItem(SESSION_KEY);
+    const utm = getStoredUtm();
+
+    if (!sessionId) {
+      setIsSubmitting(false);
+      setSubmitError("Session missing. Please restart the quiz.");
+      return;
+    }
 
     const answerPayload = Object.fromEntries(
       Object.entries(answers)
@@ -224,50 +225,42 @@ export function ResultsView({ totalScore, maxScore, scorePercent, answers, onRes
       .filter(([, answer]) => answer && answer.score <= 1)
       .map(([key]) => key);
 
-    const utm = getStoredUtm();
+    (async () => {
+      setIsSubmitting(true);
+      setSubmitError(null);
 
-    setIsSubmitting(true);
-    setSubmitError(null);
+      try {
+        const response = await fetch("/api/quiz/submit", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            session_id: sessionId,
+            answers: answerPayload,
+            totalScore,
+            maxScore,
+            scorePercent,
+            weakestCategories: weakestCategories.length ? weakestCategories : undefined,
+            utm,
+          }),
+        });
 
-    try {
-      console.log("[SUBMIT] starting", { firstName, email });
+        if (!response.ok) {
+          const body = await response.json().catch(() => null);
+          throw new Error(body?.error ?? "Something went wrong. Please try again.");
+        }
 
-      const response = await fetch("/api/quiz/submit", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          firstName,
-          email,
-          answers: answerPayload,
-          totalScore,
-          maxScore,
-          scorePercent,
-          weakestCategories: weakestCategories.length ? weakestCategories : undefined,
-          utm,
-        }),
-      });
+        setIsSuccess(true);
 
-      if (!response.ok) {
-        const body = await response.json().catch(() => null);
-        throw new Error(body?.error ?? "Something went wrong. Please try again.");
+        await logCompleteEvent(utm);
+        fireMetaLead();
+      } catch (error) {
+        setIsSuccess(false);
+        setSubmitError(error instanceof Error ? error.message : "Could not send results. Please try again.");
+      } finally {
+        setIsSubmitting(false);
       }
-
-      console.log("[SUBMIT] success -> firing Lead + logging complete");
-
-      setIsSuccess(true);
-
-      // ✅ analytics completion
-      await logCompleteEvent(utm);
-
-      // ✅ meta pixel lead
-      fireMetaLead();
-    } catch (error) {
-      setIsSuccess(false);
-      setSubmitError(error instanceof Error ? error.message : "Could not send results. Please try again.");
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
+    })();
+  }, [answers, maxScore, scorePercent, totalScore]);
 
   return (
     <div className="space-y-5 sm:space-y-6">
@@ -286,6 +279,19 @@ export function ResultsView({ totalScore, maxScore, scorePercent, answers, onRes
           <p className="text-lg font-semibold">{scorePercent}%</p>
         </div>
         <Progress value={scorePercent} aria-label={`Score ${scorePercent}%`} />
+      </div>
+
+      {/* Status */}
+      <div className="rounded-lg border border-muted/60 bg-muted/10 p-4 text-sm">
+        {isSubmitting ? (
+          <p className="text-muted-foreground">Sending your results to your inbox…</p>
+        ) : submitError ? (
+          <p className="text-destructive">{submitError}</p>
+        ) : isSuccess ? (
+          <p className="text-emerald-600 dark:text-emerald-400 font-medium">Sent. Check your inbox ✅</p>
+        ) : (
+          <p className="text-muted-foreground">Done.</p>
+        )}
       </div>
 
       {/* Revenue Upside */}
@@ -346,58 +352,6 @@ export function ResultsView({ totalScore, maxScore, scorePercent, answers, onRes
           We'll tailor an action plan around the weak spots above, especially the messaging if it scored low.
         </p>
       </div>
-
-      {/* Email Capture */}
-      <Card className="border-muted/60 bg-background/70 shadow-sm">
-        <CardContent className="space-y-4">
-          <div className="space-y-2">
-            <h3 className="text-lg font-semibold">Want the full breakdown?</h3>
-            <p className="text-sm text-muted-foreground">
-              Enter your name & email and we'll send your score, bottlenecks, and the fix guide.
-            </p>
-          </div>
-
-          <form className="flex flex-col gap-3 sm:flex-row sm:items-center" onSubmit={handleSubmit}>
-            <Input
-              type="text"
-              placeholder="First name"
-              value={firstName}
-              onChange={(event) => {
-                setFirstName(event.target.value);
-                if (submitError) setSubmitError(null);
-                if (isSuccess) setIsSuccess(false);
-              }}
-              required
-              disabled={isSubmitting}
-            />
-
-            <Input
-              type="email"
-              placeholder="you@example.com"
-              value={email}
-              onChange={(event) => {
-                setEmail(event.target.value);
-                if (submitError) setSubmitError(null);
-                if (isSuccess) setIsSuccess(false);
-              }}
-              required
-              disabled={isSubmitting}
-            />
-
-            <Button type="submit" className="w-full sm:w-auto" disabled={isSubmitting || !email || !firstName}>
-              {isSubmitting ? "Sending..." : isSuccess ? "Sent" : "Send My Results"}
-            </Button>
-          </form>
-
-          {submitError ? <p className="text-sm text-destructive">{submitError}</p> : null}
-
-          {isSuccess ? (
-            <p className="text-sm font-medium text-emerald-600 dark:text-emerald-400">
-              Check your inbox — your results are on the way.
-            </p>
-          ) : null}
-        </CardContent>
-      </Card>
 
       {onRestart ? (
         <div className="pt-2">
