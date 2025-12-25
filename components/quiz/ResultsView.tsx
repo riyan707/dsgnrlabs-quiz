@@ -288,7 +288,7 @@ export function ResultsView({ totalScore, maxScore, scorePercent, answers, onRes
         ) : submitError ? (
           <p className="text-destructive">{submitError}</p>
         ) : isSuccess ? (
-          <p className="text-emerald-600 dark:text-emerald-400 font-medium">Sent. Check your inbox ✅</p>
+          <p className="text-emerald-600 dark:text-emerald-400 font-medium">Sent. Check your inbox ✅. Please check Spam folder aswell!</p>
         ) : (
           <p className="text-muted-foreground">Done.</p>
         )}
