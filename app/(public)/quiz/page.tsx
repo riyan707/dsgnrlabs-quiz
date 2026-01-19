@@ -36,7 +36,7 @@ export default function QuizPage() {
         </section>
 
         <footer className="text-center text-xs font-semibold tracking-wide text-muted-foreground">
-          2025 DSGNR Labs
+          2026 DSGNR Labs
         </footer>
       </main>
     </div>
