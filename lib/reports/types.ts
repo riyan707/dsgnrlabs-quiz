@@ -13,6 +13,14 @@ export interface BenchmarkRow {
   competitorStatus: 'bad' | 'neutral' | 'good';
 }
 
+export interface CompetitorRow {
+  name: string;
+  reviews: number;
+  website: boolean;
+  booking: boolean;
+  ads: boolean;
+}
+
 export interface RevenueItem {
   amount: string;
   title: string;
@@ -28,15 +36,19 @@ export interface PrescriptionItem {
 export interface GarageReport {
   slug: string;
   garageName: string;
+  address?: string;
   auditYear: string;
   visibilityScore: number;
   criticalInsight: string;
   executiveSummary: string;
   bookingFriction: string;
+  bookingFrictionLabel?: string;
   searchShare: string;
+  searchShareLabel?: string;
   estRevenueLoss: string;
   diagnosis: DiagnosisItem[];
   benchmark: BenchmarkRow[];
+  competitors?: CompetitorRow[];
   revenueImpact: RevenueItem[];
   totalMonthlyLoss: string;
   prescription: PrescriptionItem[];
