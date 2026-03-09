@@ -48,8 +48,8 @@ const reports: Record<string, GarageReport> = {
     ],
     psychologicalHook: 'What would you do with an extra £6,000 – £11,500 a month?',
     psychologicalSubtext: 'That\'s not a fantasy number — it\'s the revenue currently walking past your door to competitors who simply show up online. With 258 five-star reviews, your reputation is already built. We just need to make sure people can actually find you.',
-    whatsappLink: 'https://wa.me/447978075556?text=Hi%20DSGNR%20Labs%2C%20I%20just%20read%20my%20Digital%20Prescription%20report%20for%20Deans%20Lane%20Tyres%20and%20I%27d%20like%20to%20discuss%20it.',
-    phoneNumber: '07978 075556',
+    whatsappLink: 'https://wa.me/447393807556?text=Hi%20DSGNR%20Labs%2C%20I%20just%20read%20my%20Digital%20Prescription%20report%20for%20Deans%20Lane%20Tyres%20and%20I%27d%20like%20to%20discuss%20it.',
+    phoneNumber: '07393 807556',
   },
 };
 
