@@ -30,7 +30,7 @@ function scoreColor(score: number): string {
 
 function LogoMark({ className }: { className?: string }) {
   return (
-    <Image src="/dsgnrlabs-logo.png" alt="DSGNR Labs" width={140} height={26} className={className} style={{ height: 'auto' }} />
+    <Image src="/dsgnrlabs-logo.png" alt="DSGNR Labs" width={100} height={17} className={className} style={{ height: 'auto' }} />
   );
 }
 
@@ -42,7 +42,7 @@ export default function ReportClient({ report }: { report: GarageReport }) {
     <div className={`min-h-screen bg-[#f8f7f6] text-[#3D3D3D] ${manrope.className} selection:bg-[#d7b65b]/30`}>
       {/* Nav — NOT sticky on mobile, sticky on desktop */}
       <header className="relative md:sticky md:top-0 z-50 flex items-center justify-between border-b border-[#e4e2dd] bg-white/80 backdrop-blur-md px-6 md:px-20 py-4">
-        <LogoMark className="h-[26px] md:h-[30px] w-auto" />
+        <LogoMark className="h-[17px] md:h-[17px] w-auto" />
         <nav className="hidden md:flex items-center gap-10">
           <a className="text-[#3D3D3D]/70 hover:text-[#d7b65b] text-sm font-semibold transition-colors" href="#diagnosis">Diagnosis</a>
           <a className="text-[#3D3D3D]/70 hover:text-[#d7b65b] text-sm font-semibold transition-colors" href="#revenue">Revenue Impact</a>
@@ -279,7 +279,7 @@ export default function ReportClient({ report }: { report: GarageReport }) {
       {/* Footer */}
       <footer className="bg-white border-t border-[#e4e2dd] py-12 px-6 md:px-20">
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-8">
-          <LogoMark className="h-[22px] w-auto" />
+          <LogoMark className="h-[15px] w-auto" />
           <p className="text-[#3D3D3D]/40 text-sm">© {new Date().getFullYear()} DSGNR Labs. All rights reserved.</p>
         </div>
       </footer>
